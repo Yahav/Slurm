@@ -29,6 +29,56 @@ It's the concrete, runnable version of this architecture:
         └─────────────────── sacctmgr load ◄──────────────────────┘
 ```
 
+## ⚠️ IMPORTANT — must be addressed before production
+
+**This is a simulation lab.** Everything below is a deliberate shortcut that is
+safe in a single-host Docker sandbox but **must be changed for any real
+deployment**. Treat this as the production hardening checklist.
+
+### Security & secrets
+- [ ] **Munge key is baked into the image** and shared as a static file. Generate
+  a unique key per cluster, distribute it out-of-band, and keep it off the image
+  (`slurm/munge.key` is lab-only).
+- [ ] **All passwords are plaintext/default** (LDAP admin, DB users, `admin/admin`
+  ColdFront, `password` for every directory user). Replace with real secrets
+  (a secrets manager / env injection), and force password changes.
+- [ ] **Everything runs over plain HTTP.** ColdFront, Open OnDemand, and
+  phpLDAPadmin must run behind HTTPS with real certificates.
+- [ ] **Dex uses `insecureNoSSL`** and binds LDAP without TLS. In prod use
+  `ldaps://`, drop the `ldap_auth_disable_tls...` line, and remove `insecureNoSSL`.
+
+### Identity (LDAP/AD)
+- [ ] **OpenLDAP stands in for AD** and SSSD runs in `ldap` provider mode (no realm
+  join). Against real AD: point `ldap_uri` at the domain controllers, use
+  `ldaps://`, and adjust `ldap_schema`.
+
+### Resource enforcement (Slurm)
+- [ ] **cgroups are disabled** (`slurm/cgroup.conf` → `CgroupPlugin=disabled`,
+  `proctrack/linuxproc`, `task/none`). This means Slurm enforces limits at
+  **submission/scheduling time** (a job asking for more than its quota is
+  rejected) but **does NOT physically contain a running job** — a job can exceed
+  its `--mem`/CPU/GPU allocation at runtime with nothing stopping it. For real
+  runtime enforcement: set `CgroupPlugin=autodetect` (or `cgroup/v2`),
+  `ProctrackType=proctrack/cgroup` + `TaskPlugin=task/cgroup`, rebuild the image
+  with `libdbus-1-dev`, and run the compute containers as `privileged: true`.
+- [ ] **GPUs are fake** device nodes — jobs do no real compute. Replace with real
+  hardware + the appropriate GRES config.
+
+### Storage
+- [ ] **Storage quotas are modelled but NOT enforced** — there's no quota-capable
+  filesystem. `scripts/sync-storage.sh` is a stub that only *prints* the
+  `lfs setquota` command. Replace its `echo` with the real quota command for your
+  filesystem (`lfs`/`mmsetquota`/`setquota`), run on a host that can administer it.
+
+### Services & topology
+- [ ] **ColdFront and OOD run dev servers.** Production = real WSGI/ASGI
+  (gunicorn/uwsgi/Passenger) behind a proper web server, not Django's dev server.
+- [ ] **Single host** — controller, slurmdbd, databases, compute nodes, and portals
+  are all co-located. Split across real hosts/nodes for production.
+- [ ] **Run the ColdFront → Slurm sync on a cron.** `scripts/sync-coldfront.sh` is
+  invoked manually here; in prod it runs on a schedule. **ColdFront is the source
+  of truth** — re-running the sync overwrites manual `sacctmgr` edits.
+
 ## Containers
 
 | Service | Role |
@@ -50,16 +100,34 @@ against the directory's LDAP, exactly as you'd point it at real AD).
 ## Quick start
 
 ```bash
-docker compose build      # first run compiles Slurm + builds ColdFront + OnDemand (several minutes)
+# 1. Build the shared base image first. `ondemand` is FROM slurm-lab:local,
+#    so `docker compose build` alone races and tries to pull it from Docker Hub.
+docker build -t slurm-lab:local .
+docker compose build         # now builds coldfront-lab + ood-lab on top
 docker compose up -d
 # wait ~30s for LDAP seed, SSSD, and ColdFront migrations
 bash scripts/sync-coldfront.sh   # push ColdFront projects → Slurm
 ```
 
-> If you edit the shared `Dockerfile`, rebuild with `docker build -t slurm-lab:local .`
-> (plain `docker build`, not `docker compose build`) — compose's build cache can
-> serve a stale image for the shared tag. Rebuild `ood-lab:local` afterward since
-> it's `FROM slurm-lab:local`, then `docker compose up -d --force-recreate`.
+> Same sequence applies whenever you edit the shared `Dockerfile`: rebuild
+> `slurm-lab:local` with plain `docker build` (compose's cache can serve a
+> stale image for the shared tag), then `docker compose build` to rebuild
+> `ood-lab:local` on top, then `docker compose up -d --force-recreate`.
+
+> **Windows / PowerShell users:** `scripts/sync-coldfront.sh` is a bash script
+> that orchestrates `docker compose exec` calls from the host — it must run on
+> your machine, not inside a container. Use one of:
+> ```powershell
+> bash scripts/sync-coldfront.sh                              # Git Bash on PATH
+> & "C:\Program Files\Git\bin\bash.exe" scripts/sync-coldfront.sh   # explicit Git Bash
+> wsl bash scripts/sync-coldfront.sh                          # WSL
+> ```
+> Likewise, the POSIX redirect `coldfront shell < seed_scenario.py` shown
+> elsewhere in this README doesn't work in PowerShell (`<` is reserved). Pipe
+> instead:
+> ```powershell
+> Get-Content coldfront/seed_scenario.py | docker compose exec -T coldfront coldfront shell
+> ```
 
 Web UIs:
 - **Open OnDemand** (user portal): http://localhost:8050 — log in as any

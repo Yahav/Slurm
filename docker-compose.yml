@@ -106,10 +106,16 @@ services:
       - home:/home
       - coldfront_sync:/shared
 
+  # slurmd forks a helper via clone() to read each user's env on job launch.
+  # Docker's default seccomp profile blocks some of the CLONE_* flags it uses,
+  # which makes slurmd FATAL with "clone: Operation not permitted" the first
+  # time a batch job runs. Disable seccomp on just the compute nodes.
   c1:
     <<: *slurm-common
     hostname: c1
     command: ["slurmd"]
+    security_opt:
+      - seccomp:unconfined
     depends_on:
       - slurmctld
       - openldap
@@ -118,6 +124,8 @@ services:
     <<: *slurm-common
     hostname: c2
     command: ["slurmd"]
+    security_opt:
+      - seccomp:unconfined
     depends_on:
       - slurmctld
       - openldap
@@ -126,6 +134,8 @@ services:
     <<: *slurm-common
     hostname: c3
     command: ["slurmd"]
+    security_opt:
+      - seccomp:unconfined
     depends_on:
       - slurmctld
       - openldap
