@@ -1,0 +1,7 @@
+---
+name: Jupyter Lab
+category: Interactive Apps
+subcategory: Servers
+role: batch_connect
+description: |
+  Launch JupyterLab as a Slurm job on the lab GPU cluster.

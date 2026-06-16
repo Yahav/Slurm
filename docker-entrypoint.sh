@@ -50,18 +50,66 @@ fix_perms() {
     chown -R slurm:slurm /var/spool/slurmctld /var/log/slurm /run/slurm 2>/dev/null || true
 }
 
+# Start SSSD so LDAP users resolve via NSS (id/getpwnam). Needs the directory
+# reachable first. Used by every node that must resolve users: the controller
+# (loads associations by name→uid), compute nodes (run jobs as the user), and
+# the login host (submit + interactive login).
+start_sssd() {
+    if [[ ! -f /etc/sssd/sssd.conf ]]; then
+        return 0
+    fi
+    wait_for openldap 389 "OpenLDAP"
+    chown root:root /etc/sssd/sssd.conf
+    chmod 0600 /etc/sssd/sssd.conf
+    mkdir -p /var/lib/sss/db /var/lib/sss/pipes /var/log/sssd
+    log "starting sssd"
+    /usr/sbin/sssd
+    # Wait until at least one known LDAP user resolves.
+    for _ in $(seq 1 20); do
+        if getent passwd hpcadmin >/dev/null 2>&1; then
+            log "sssd OK — LDAP users resolve"
+            return 0
+        fi
+        sleep 1
+    done
+    log "WARNING: sssd started but LDAP users not resolving yet"
+}
+
+# Pre-create home dirs on the shared /home volume for every LDAP user, so jobs
+# launched by slurmd (which doesn't go through PAM/mkhomedir) have a home.
+create_ldap_homes() {
+    getent passwd | awk -F: '$3>=6000 && $3<65000 {print $1":"$3":"$4":"$6}' | \
+    while IFS=: read -r name uid gid home; do
+        [[ -z "$home" ]] && continue
+        if [[ ! -d "$home" ]]; then
+            mkdir -p "$home"
+            cp -an /etc/skel/. "$home/" 2>/dev/null || true
+        fi
+        # Backfill the SSH key into pre-existing homes (for the OOD Shell app).
+        if [[ ! -d "$home/.ssh" ]]; then
+            cp -an /etc/skel/.ssh "$home/" 2>/dev/null || true
+        fi
+        chown -R "$uid:$gid" "$home"
+        chmod 0700 "$home" "$home/.ssh" 2>/dev/null || true
+    done
+}
+
 start_munge
 stage_config
 fix_perms
 
 case "$ROLE" in
     slurmdbd)
+        # slurmdbd authorizes sacctmgr requests (incl. the coordinator check),
+        # so it must resolve the caller's uid→username via LDAP too.
+        start_sssd
         wait_for mysql 3306 "MariaDB"
         log "starting slurmdbd"
         exec slurmdbd -D -vvv
         ;;
 
     slurmctld)
+        start_sssd
         wait_for slurmdbd 6819 "slurmdbd"
         # Register this cluster in the accounting DB (idempotent).
         log "registering cluster in accounting db"
@@ -80,12 +128,19 @@ case "$ROLE" in
                 mknod "/dev/fakegpu${i}" c 195 "${i}" 2>/dev/null || touch "/dev/fakegpu${i}"
             fi
         done
+        start_sssd
         wait_for slurmctld 6817 "slurmctld"
         log "starting slurmd as node $(hostname)"
         exec slurmd -D -vvv -N "$(hostname)"
         ;;
 
     login)
+        start_sssd
+        create_ldap_homes
+        # sshd so the Open OnDemand Shell app can SSH in as the user (pubkey).
+        ssh-keygen -A 2>/dev/null || true
+        mkdir -p /run/sshd
+        /usr/sbin/sshd && log "sshd started"
         wait_for slurmctld 6817 "slurmctld"
         log "login node ready. Use: docker compose exec login bash"
         # Keep the container alive.

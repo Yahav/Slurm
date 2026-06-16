@@ -30,7 +30,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         iproute2 \
         netcat-openbsd \
         vim less \
+        sssd sssd-ldap libnss-sss libpam-sss ldap-utils \
+        openssh-server python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# --- Jupyter (for the Open OnDemand interactive app on compute nodes) --------
+RUN pip3 install --no-cache-dir jupyterlab
+
+# --- Passwordless SSH for the OOD Shell app ---------------------------------
+# A single keypair baked into /etc/skel so every user's home (created from skel)
+# can SSH to the login node without a password. Lab-only convenience.
+RUN mkdir -p /etc/skel/.ssh && \
+    ssh-keygen -t ed25519 -N "" -f /etc/skel/.ssh/id_ed25519 -C "lab-shared" && \
+    cp /etc/skel/.ssh/id_ed25519.pub /etc/skel/.ssh/authorized_keys && \
+    printf 'Host *\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null\n    LogLevel ERROR\n' > /etc/skel/.ssh/config && \
+    chmod 700 /etc/skel/.ssh && chmod 600 /etc/skel/.ssh/* && \
+    mkdir -p /run/sshd
+
+# --- Identity: route NSS through SSSD so LDAP users resolve cluster-wide -----
+# sssd.conf must be 0600 root; nsswitch tells glibc to consult sss. The
+# entrypoint starts sssd once LDAP is reachable.
+COPY sssd/sssd.conf /etc/sssd/sssd.conf
+COPY sssd/nsswitch.conf /etc/nsswitch.conf
+RUN chmod 0600 /etc/sssd/sssd.conf && chown root:root /etc/sssd/sssd.conf && \
+    sed -i 's/^session.*pam_unix.so.*/&\nsession optional pam_mkhomedir.so skel=\/etc\/skel umask=0022/' /etc/pam.d/common-session
 
 # --- Consistent users across all nodes --------------------------------------
 # slurm user must have the same UID everywhere. We also add a normal "lab"

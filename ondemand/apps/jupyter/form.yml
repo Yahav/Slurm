@@ -1,0 +1,30 @@
+---
+cluster: "lab"
+form:
+  - bc_num_hours
+  - bc_account
+  - partition
+  - num_gpus
+attributes:
+  bc_num_hours:
+    widget: number_field
+    label: "Number of hours"
+    value: 1
+    min: 1
+    max: 8
+  bc_account:
+    label: "Slurm account"
+    help: "Which account (project) to charge — e.g. smith_lab, smith_cs101"
+    value: "smith_lab"
+  partition:
+    widget: select
+    label: "Partition"
+    options:
+      - "gpu"
+      - "normal"
+  num_gpus:
+    widget: number_field
+    label: "Number of GPUs"
+    value: 1
+    min: 0
+    max: 2

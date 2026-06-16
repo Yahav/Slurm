@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Launches JupyterLab inside the Slurm job. The batch_connect "basic" template
+# provides $host and $port; OOD reverse-proxies the browser to it via /rnode.
+export XDG_RUNTIME_DIR="$(mktemp -d)"
+export JUPYTER_CONFIG_DIR="$(mktemp -d)"
+
+echo "Starting JupyterLab on ${host}:${port} as $(whoami)"
+echo "GPUs allocated: ${CUDA_VISIBLE_DEVICES:-none}"
+
+jupyter lab \
+  --no-browser \
+  --ip="${host}" \
+  --port="${port}" \
+  --ServerApp.token="" \
+  --ServerApp.password="" \
+  --ServerApp.base_url="/rnode/${host}/${port}/" \
+  --ServerApp.allow_origin="*" \
+  --ServerApp.allow_remote_access=True \
+  --ServerApp.open_browser=False

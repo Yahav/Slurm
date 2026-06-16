@@ -1,0 +1,117 @@
+# Seed directory data — the "Active Directory" stand-in.
+# Base DN dc=cluster,dc=local and the admin account are created by the
+# OpenLDAP image from its env vars; this file adds the OUs, POSIX groups,
+# and people on top.
+#
+# IMPORTANT: per the design, LDAP holds ONLY identity (users + their POSIX
+# primary group for uid/gid resolution). It does NOT model classes/labs —
+# those are Slurm accounts managed in ColdFront. The two posixGroups here
+# exist purely to give every user a primary gid.
+#
+# All users have password: password
+
+# --- Organizational units ----------------------------------------------------
+dn: ou=people,dc=cluster,dc=local
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=cluster,dc=local
+objectClass: organizationalUnit
+ou: groups
+
+# --- POSIX primary groups (identity only, not Slurm accounts) ----------------
+dn: cn=researchers,ou=groups,dc=cluster,dc=local
+objectClass: posixGroup
+cn: researchers
+gidNumber: 5000
+
+dn: cn=students,ou=groups,dc=cluster,dc=local
+objectClass: posixGroup
+cn: students
+gidNumber: 5001
+
+# --- Administrator -----------------------------------------------------------
+dn: uid=hpcadmin,ou=people,dc=cluster,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: hpcadmin
+cn: HPC Administrator
+sn: Administrator
+uidNumber: 6000
+gidNumber: 5000
+homeDirectory: /home/hpcadmin
+loginShell: /bin/bash
+userPassword: password
+
+# --- Researchers -------------------------------------------------------------
+dn: uid=smith,ou=people,dc=cluster,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: smith
+cn: Professor Smith
+sn: Smith
+mail: smith@cluster.local
+uidNumber: 6001
+gidNumber: 5000
+homeDirectory: /home/smith
+loginShell: /bin/bash
+userPassword: password
+
+dn: uid=jones,ou=people,dc=cluster,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: jones
+cn: Professor Jones
+sn: Jones
+mail: jones@cluster.local
+uidNumber: 6002
+gidNumber: 5000
+homeDirectory: /home/jones
+loginShell: /bin/bash
+userPassword: password
+
+# --- Students (membership in a class is modeled in ColdFront, not here) ------
+dn: uid=alice,ou=people,dc=cluster,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: alice
+cn: Alice Student
+sn: Student
+mail: alice@cluster.local
+uidNumber: 7001
+gidNumber: 5001
+homeDirectory: /home/alice
+loginShell: /bin/bash
+userPassword: password
+
+dn: uid=bob,ou=people,dc=cluster,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: bob
+cn: Bob Student
+sn: Student
+mail: bob@cluster.local
+uidNumber: 7002
+gidNumber: 5001
+homeDirectory: /home/bob
+loginShell: /bin/bash
+userPassword: password
+
+dn: uid=carol,ou=people,dc=cluster,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: carol
+cn: Carol Student
+sn: Student
+mail: carol@cluster.local
+uidNumber: 7003
+gidNumber: 5001
+homeDirectory: /home/carol
+loginShell: /bin/bash
+userPassword: password

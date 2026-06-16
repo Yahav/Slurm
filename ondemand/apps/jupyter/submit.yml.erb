@@ -1,0 +1,11 @@
+---
+batch_connect:
+  template: "basic"
+script:
+  accounting_id: "<%= bc_account %>"
+  native:
+    - "-p"
+    - "<%= partition %>"
+<%- if num_gpus.to_i > 0 -%>
+    - "--gres=gpu:<%= num_gpus %>"
+<%- end -%>

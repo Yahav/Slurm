@@ -1,0 +1,23 @@
+# Tells Open OnDemand how to talk to our Slurm cluster.
+# OOD runs the slurm client (sbatch/squeue/...) locally in this container,
+# as the logged-in user, authenticated by the shared munge key.
+---
+v2:
+  metadata:
+    title: "Lab GPU Cluster"
+  login:
+    host: "login"          # Shell app SSHes here as the user
+  job:
+    adapter: "slurm"
+    cluster: "lab"
+    bin: "/usr/local/bin"  # where our source-built slurm client lives
+    conf: "/etc/slurm/slurm.conf"
+  batch_connect:
+    basic:
+      script_wrapper: |
+        source /etc/profile
+        %s
+    vnc:
+      script_wrapper: |
+        source /etc/profile
+        %s

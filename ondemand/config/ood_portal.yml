@@ -1,0 +1,33 @@
+# Open OnDemand portal config.
+# update_ood_portal reads this to generate the Apache vhost AND the Dex config.
+---
+servername: localhost
+port: 8050
+
+# Authenticate via the bundled Dex (OIDC), with an LDAP connector pointed at
+# our directory — "authenticate against AD/LDAP, no domain join", web edition.
+# When `dex` is set, OOD wires Apache's mod_auth_openidc to this local Dex.
+dex:
+  connectors:
+    - type: ldap
+      id: ldap
+      name: LDAP
+      config:
+        host: openldap:389
+        insecureNoSSL: true
+        insecureSkipVerify: true
+        bindDN: cn=admin,dc=cluster,dc=local
+        bindPW: adminpassword
+        userSearch:
+          baseDN: ou=people,dc=cluster,dc=local
+          filter: "(objectClass=posixAccount)"
+          username: uid
+          idAttr: uid
+          emailAttr: mail
+          nameAttr: cn
+          preferredUsernameAttr: uid
+
+# Map the OIDC identity to the Linux username (uid attr → REMOTE_USER), so the
+# per-user nginx runs as e.g. "smith" and Slurm jobs are submitted as smith.
+oidc_remote_user_claim: preferred_username
+oidc_scope: "openid profile email"

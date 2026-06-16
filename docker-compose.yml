@@ -28,6 +28,38 @@ x-slurm-common: &slurm-common
     - slurm
 
 services:
+  # --- Directory (the "Active Directory" stand-in) ---------------------------
+  openldap:
+    image: osixia/openldap:1.5.0
+    hostname: openldap
+    command: ["--copy-service", "--loglevel", "info"]
+    environment:
+      LDAP_ORGANISATION: "Cluster Lab"
+      LDAP_DOMAIN: "cluster.local"          # → base dn dc=cluster,dc=local
+      LDAP_ADMIN_PASSWORD: "adminpassword"
+    volumes:
+      # Seed users/groups on first init.
+      - ./ldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/bootstrap.ldif:ro
+      - ldap_data:/var/lib/ldap
+      - ldap_config:/etc/ldap/slapd.d
+    networks:
+      - slurm
+
+  # Web UI to browse/edit the directory (http://localhost:8443, login:
+  # cn=admin,dc=cluster,dc=local / adminpassword).
+  phpldapadmin:
+    image: osixia/phpldapadmin:0.9.0
+    hostname: phpldapadmin
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: "openldap"
+      PHPLDAPADMIN_HTTPS: "false"
+    ports:
+      - "8443:80"
+    depends_on:
+      - openldap
+    networks:
+      - slurm
+
   mysql:
     image: mariadb:11
     hostname: mysql
@@ -58,6 +90,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      openldap:
+        condition: service_started
 
   slurmctld:
     <<: *slurm-common
@@ -65,6 +99,12 @@ services:
     command: ["slurmctld"]
     depends_on:
       - slurmdbd
+      - openldap
+    # /shared holds ColdFront's slurm_dump output that we load with sacctmgr.
+    volumes:
+      - ./slurm:/etc/slurm-host:ro
+      - home:/home
+      - coldfront_sync:/shared
 
   c1:
     <<: *slurm-common
@@ -72,6 +112,7 @@ services:
     command: ["slurmd"]
     depends_on:
       - slurmctld
+      - openldap
 
   c2:
     <<: *slurm-common
@@ -79,6 +120,15 @@ services:
     command: ["slurmd"]
     depends_on:
       - slurmctld
+      - openldap
+
+  c3:
+    <<: *slurm-common
+    hostname: c3
+    command: ["slurmd"]
+    depends_on:
+      - slurmctld
+      - openldap
 
   login:
     <<: *slurm-common
@@ -86,10 +136,87 @@ services:
     command: ["login"]
     depends_on:
       - slurmctld
+      - openldap
+    # Shared with coldfront so `slurm_dump` output is loadable by sacctmgr here.
+    volumes:
+      - ./slurm:/etc/slurm-host:ro
+      - home:/home
+      - coldfront_sync:/shared
+
+  # --- ColdFront management portal -------------------------------------------
+  coldfront-db:
+    image: postgres:16
+    hostname: coldfront-db
+    environment:
+      POSTGRES_DB: coldfront
+      POSTGRES_USER: coldfront
+      POSTGRES_PASSWORD: coldfront
+    volumes:
+      - coldfront_db:/var/lib/postgresql/data
+    networks:
+      - slurm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coldfront"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  coldfront:
+    build:
+      context: ./coldfront
+    image: coldfront-lab:local
+    hostname: coldfront
+    environment:
+      # Enable the Slurm export plugin and the LDAP user-search plugin.
+      PLUGIN_SLURM: "True"
+      SLURM_SACCTMGR_PATH: "/usr/bin/sacctmgr"
+      PLUGIN_LDAP_USER_SEARCH: "True"
+      LDAP_USER_SEARCH_SERVER_URI: "ldap://openldap"
+      LDAP_USER_SEARCH_BASE: "ou=people,dc=cluster,dc=local"
+      LDAP_USER_SEARCH_BIND_DN: "cn=admin,dc=cluster,dc=local"
+      LDAP_USER_SEARCH_BIND_PASSWORD: "adminpassword"
+      # Plain ldap:// (port 389) — do NOT use SSL/TLS (default is SSL=True).
+      LDAP_USER_SEARCH_USE_SSL: "False"
+      LDAP_USER_SEARCH_USE_TLS: "False"
+    ports:
+      - "8000:8000"
+    volumes:
+      - coldfront_sync:/shared
+    depends_on:
+      coldfront-db:
+        condition: service_healthy
+      openldap:
+        condition: service_started
+    networks:
+      - slurm
+
+  # --- Open OnDemand portal --------------------------------------------------
+  ondemand:
+    build:
+      context: ./ondemand
+    image: ood-lab:local
+    hostname: ondemand
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./ondemand/config/ood_portal.yml:/etc/ood/config/ood_portal.yml:ro
+      - ./ondemand/config/clusters.d:/etc/ood/config/clusters.d:ro
+      - ./ondemand/apps/jupyter:/var/www/ood/apps/sys/jupyter:ro  # interactive app
+      - ./slurm:/etc/slurm-host:ro      # slurm.conf for the job adapter
+      - home:/home                       # shared homes (Files app, job output)
+    depends_on:
+      - openldap
+      - slurmctld
+    networks:
+      - slurm
 
 volumes:
   home:
   mysql:
+  ldap_data:
+  ldap_config:
+  coldfront_db:
+  coldfront_sync:
 
 networks:
   slurm:
